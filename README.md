@@ -20,16 +20,17 @@
 - **代理支持**: SOCKS5/HTTP 代理
 
 ## 项目结构
+
+```
 project/
-├── main.py # 主程序
-├── templates/ # 模板文件
-│ └── index.html # 主页面
-├── static/ # 静态文件
-│ └── style.css # 样式文件
-├── downloads/ # 下载文件存储目录
-└── .gitignore # Git 忽略配置
-
-
+├── main.py          # 主程序
+├── templates/       # 模板文件
+│   └── index.html  # 主页面
+├── static/         # 静态文件
+│   └── style.css  # 样式文件
+├── downloads/      # 下载文件存储目录
+└── .gitignore     # Git 忽略配置
+```
 
 ## 安装步骤
 
