@@ -24,6 +24,7 @@ import tempfile
 import json
 from http.cookiejar import MozillaCookieJar
 from pathlib import Path
+from starlette.config import Config
 
 # 配置日志
 logging.basicConfig(
@@ -35,13 +36,23 @@ logger = logging.getLogger(__name__)
 # 获取项目根目录
 BASE_DIR = Path(__file__).resolve().parent
 
-# 修改目录配置
-DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
-STATIC_DIR = os.path.join(BASE_DIR, "static")
+# 检查是否在 Vercel 环境
+IS_VERCEL = os.environ.get('VERCEL', False)
 
-# 创建必要的目录
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-os.makedirs(STATIC_DIR, exist_ok=True)
+# 根据环境选择目录配置
+if IS_VERCEL:
+    # Vercel 环境使用 /tmp 目录
+    DOWNLOAD_DIR = "/tmp/downloads"
+    STATIC_DIR = "/tmp/static"
+else:
+    # 本地环境使用项目目录
+    DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
+    STATIC_DIR = os.path.join(BASE_DIR, "static")
+
+# 只在非 Vercel 环境下创建目录
+if not IS_VERCEL:
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    os.makedirs(STATIC_DIR, exist_ok=True)
 
 # 在文件开头定义全局变量
 PROXY_PORT = 1080  # 设置默认代理端口
