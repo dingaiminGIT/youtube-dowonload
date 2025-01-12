@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import yt_dlp
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import humanize
 import re
 import logging
@@ -49,10 +49,23 @@ else:
     DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
     STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-# 只在非 Vercel 环境下创建目录
-if not IS_VERCEL:
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-    os.makedirs(STATIC_DIR, exist_ok=True)
+# 创建必要的目录（在所有环境下都需要）
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+os.makedirs(STATIC_DIR, exist_ok=True)
+
+# 如果是 Vercel 环境，需要复制静态文件到临时目录
+if IS_VERCEL:
+    import shutil
+    # 复制静态文件到临时目录
+    original_static = os.path.join(BASE_DIR, "static")
+    if os.path.exists(original_static):
+        for item in os.listdir(original_static):
+            s = os.path.join(original_static, item)
+            d = os.path.join(STATIC_DIR, item)
+            if os.path.isfile(s):
+                shutil.copy2(s, d)
+            else:
+                shutil.copytree(s, d, dirs_exist_ok=True)
 
 # 在文件开头定义全局变量
 PROXY_PORT = 1080  # 设置默认代理端口
@@ -78,6 +91,26 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 # 存储视频信息的列表
 videos = []
+
+# 添加下载进度回调函数
+def download_progress_hook(d):
+    if d['status'] == 'downloading':
+        try:
+            # 计算下载进度
+            total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
+            downloaded = d.get('downloaded_bytes', 0)
+            if total > 0:
+                progress = (downloaded / total) * 100
+                speed = d.get('speed', 0)
+                if speed:
+                    eta = d.get('eta', 0)
+                    logger.info(
+                        f"Download progress: {progress:.1f}% "
+                        f"Speed: {humanize.naturalsize(speed)}/s "
+                        f"ETA: {timedelta(seconds=eta)}"
+                    )
+        except Exception as e:
+            logger.warning(f"Error calculating progress: {str(e)}")
 
 # 创建一个带有重试机制的 session
 def create_session():
@@ -189,26 +222,6 @@ def validate_youtube_url(url: str) -> bool:
     youtube_regex = r'^(https?://)?(www\.)?(youtube\.com|youtu\.be)/.+$'
     return bool(re.match(youtube_regex, url))
 
-# 添加下载进度回调函数
-def download_progress_hook(d):
-    if d['status'] == 'downloading':
-        try:
-            # 计算下载进度
-            total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
-            downloaded = d.get('downloaded_bytes', 0)
-            if total > 0:
-                progress = (downloaded / total) * 100
-                speed = d.get('speed', 0)
-                if speed:
-                    eta = d.get('eta', 0)
-                    logger.info(
-                        f"Download progress: {progress:.1f}% "
-                        f"Speed: {humanize.naturalsize(speed)}/s "
-                        f"ETA: {datetime.timedelta(seconds=eta)}"
-                    )
-        except Exception as e:
-            logger.warning(f"Error calculating progress: {str(e)}")
-
 # 定义全局 yt-dlp 配置
 ydl_opts = {
     'format': 'best',  # 使用最简单的格式选择
@@ -227,7 +240,6 @@ ydl_opts = {
     'no_check_certificate': True,
     'ignoreerrors': True,
     'no_color': True,
-    # 移除 cookiesfrombrowser 选项
     'merge_output_format': 'mp4',
     'progress_hooks': [download_progress_hook],  # 添加进度回调
 }
@@ -412,7 +424,7 @@ async def download_task(url, opts, info):
         # 添加到视频列表
         video_info = {
             "title": info['title'],
-            "duration": str(datetime.timedelta(seconds=info['duration'])),
+            "duration": str(timedelta(seconds=info['duration'])),
             "author": info.get('uploader', 'Unknown'),
             "description": info.get('description', '')[:200] + "...",
             "size": humanize.naturalsize(filesize),

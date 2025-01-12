@@ -5,4 +5,7 @@ jinja2
 yt-dlp
 humanize
 requests[socks]
-browser-cookie3 
+browser-cookie3
+aiofiles
+python-multipart
+starlette 
