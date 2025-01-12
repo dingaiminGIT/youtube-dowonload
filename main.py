@@ -23,6 +23,7 @@ import browser_cookie3  # 需要先安装：pip install browser-cookie3
 import tempfile
 import json
 from http.cookiejar import MozillaCookieJar
+from pathlib import Path
 
 # 配置日志
 logging.basicConfig(
@@ -31,9 +32,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 确保必要的目录存在
-DOWNLOAD_DIR = "downloads"
-STATIC_DIR = "static"
+# 获取项目根目录
+BASE_DIR = Path(__file__).resolve().parent
+
+# 修改目录配置
+DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
+STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 # 创建必要的目录
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -59,7 +63,7 @@ app.add_middleware(
 
 # 配置静态文件和模板
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 # 存储视频信息的列表
 videos = []
@@ -422,3 +426,7 @@ async def download_task(url, opts, info):
 @app.get("/videos")
 async def get_videos():
     return JSONResponse({"videos": videos}) 
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000) 
