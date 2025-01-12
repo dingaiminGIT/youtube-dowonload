@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Video Downloader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <!-- 标题部分 -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">YouTube Video Downloader</h1>
+            <p class="text-gray-600">Enter a YouTube URL to download the video</p>
+        </div>
+
+        <!-- 下载表单 -->
+        <div class="max-w-xl mx-auto bg-white rounded-lg shadow-md p-6 mb-8">
+            <div class="flex gap-2">
+                <input type="text" 
+                       id="url-input"
+                       class="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:border-blue-500"
+                       placeholder="Paste YouTube URL here...">
+                <button onclick="downloadVideo()"
+                        class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                        id="download-btn">
+                    Download
+                </button>
+            </div>
+            <div id="status" class="mt-4 text-center text-gray-600 hidden"></div>
+        </div>
+
+        <!-- 视频列表 -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-2xl font-bold mb-4">Downloaded Videos</h2>
+            <div id="video-list" class="space-y-4">
+                {% for video in videos %}
+                <div class="border rounded-lg p-4">
+                    <h3 class="text-xl font-semibold mb-2">{{ video.title }}</h3>
+                    <video controls class="w-full mb-2">
+                        <source src="file://{{ video.path }}" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+                    <div class="grid grid-cols-2 gap-2 text-sm text-gray-600">
+                        <div>Duration: {{ video.duration }}</div>
+                        <div>Size: {{ video.size }}</div>
+                        <div>Author: {{ video.author }}</div>
+                        <div>Downloaded: {{ video.timestamp }}</div>
+                    </div>
+                    <p class="mt-2 text-gray-600">{{ video.description }}</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BASE_URL = window.location.origin;  // 获取当前域名和端口
+        
+        async function downloadVideo() {
+            const urlInput = document.getElementById('url-input');
+            const statusDiv = document.getElementById('status');
+            const downloadBtn = document.getElementById('download-btn');
+            
+            // 基本验证
+            if (!urlInput.value) {
+                alert('Please enter a YouTube URL');
+                return;
+            }
+            
+            // 更新UI状态
+            downloadBtn.disabled = true;
+            statusDiv.textContent = 'Starting download...';
+            statusDiv.classList.remove('hidden');
+            
+            try {
+                const response = await fetch(`${BASE_URL}/download`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        url: urlInput.value.trim()
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    statusDiv.textContent = `Downloading: ${data.title}`;
+                    statusDiv.classList.remove('text-red-500');
+                    // 定期检查视频列表更新
+                    checkVideoStatus();
+                } else {
+                    statusDiv.textContent = `Error: ${data.detail || 'Unknown error occurred'}`;
+                    statusDiv.classList.add('text-red-500');
+                }
+            } catch (error) {
+                console.error('Download error:', error);
+                statusDiv.textContent = `Network Error: Please check your connection and try again (${error.message})`;
+                statusDiv.classList.add('text-red-500');
+            } finally {
+                downloadBtn.disabled = false;
+                // 5秒后清除错误消息
+                setTimeout(() => {
+                    if (statusDiv.classList.contains('text-red-500')) {
+                        statusDiv.textContent = '';
+                        statusDiv.classList.add('hidden');
+                        statusDiv.classList.remove('text-red-500');
+                    }
+                }, 5000);
+            }
+        }
+
+        async function checkVideoStatus() {
+            try {
+                const response = await fetch(`${BASE_URL}/videos`);
+                const data = await response.json();
+                
+                // 更新视频列表
+                const videoList = document.getElementById('video-list');
+                videoList.innerHTML = data.videos.map(video => `
+                    <div class="border rounded-lg p-4">
+                        <h3 class="text-xl font-semibold mb-2">${video.title}</h3>
+                        <video controls class="w-full mb-2">
+                            <source src="file://${video.path}" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                        <div class="grid grid-cols-2 gap-2 text-sm text-gray-600">
+                            <div>Duration: ${video.duration}</div>
+                            <div>Size: ${video.size}</div>
+                            <div>Author: ${video.author}</div>
+                            <div>Downloaded: ${video.timestamp}</div>
+                        </div>
+                        <p class="mt-2 text-gray-600">${video.description}</p>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error fetching videos:', error);
+            }
+        }
+
+        // 页面加载完成后开始检查视频列表
+        document.addEventListener('DOMContentLoaded', checkVideoStatus);
+    </script>
+</body>
+</html> 
