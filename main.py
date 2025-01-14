@@ -223,26 +223,47 @@ def validate_youtube_url(url: str) -> bool:
     return bool(re.match(youtube_regex, url))
 
 # 定义全局 yt-dlp 配置
-ydl_opts = {
-    'format': 'best',  # 使用最简单的格式选择
-    'outtmpl': os.path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s'),
-    'quiet': False,
-    'no_warnings': False,
-    'verbose': True,
-    'socket_timeout': 30,
-    'retries': 5,
-    'fragment_retries': 5,
-    'http_headers': {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-    },
-    'proxy': 'socks5h://127.0.0.1:1080',
-    'nocheckcertificate': True,
-    'no_check_certificate': True,
-    'ignoreerrors': True,
-    'no_color': True,
-    'merge_output_format': 'mp4',
-    'progress_hooks': [download_progress_hook],  # 添加进度回调
-}
+def get_ydl_opts():
+    base_opts = {
+        'format': 'best',
+        'outtmpl': os.path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s'),
+        'quiet': False,
+        'no_warnings': False,
+        'verbose': True,
+        'socket_timeout': 30,
+        'retries': 5,
+        'fragment_retries': 5,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        },
+        'nocheckcertificate': True,
+        'no_check_certificate': True,
+        'ignoreerrors': True,
+        'no_color': True,
+        'merge_output_format': 'mp4',
+        'progress_hooks': [download_progress_hook],
+    }
+
+    if IS_VERCEL:
+        # Vercel 环境特殊配置
+        base_opts.update({
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': True,  # 只提取基本信息
+            'force_generic_extractor': False,
+            'youtube_include_dash_manifest': False,
+            'cachedir': False,
+        })
+    else:
+        # 本地环境配置
+        base_opts.update({
+            'proxy': 'socks5h://127.0.0.1:1080',
+        })
+
+    return base_opts
+
+# 使用函数替代全局变量
+ydl_opts = get_ydl_opts()
 
 # 设置环境变量
 os.environ['HTTP_PROXY'] = 'socks5h://127.0.0.1:1080'
@@ -317,74 +338,55 @@ def get_youtube_cookies():
 @app.post("/download")
 async def download_video(request: Request):
     try:
-        logger.info("Received download request")
         data = await request.json()
         url = data.get("url")
         
-        logger.info(f"Processing URL: {url}")
-        
-        if not url:
-            raise HTTPException(status_code=400, detail="URL is required")
-        
-        if not validate_youtube_url(url):
-            logger.warning(f"Invalid URL format: {url}")
+        if not url or not validate_youtube_url(url):
             raise HTTPException(status_code=400, detail="Invalid YouTube URL")
+
+        current_opts = get_ydl_opts()
         
-        # 使用环境变量方式设置代理
-        current_opts = ydl_opts.copy()
-        
-        # 获取 cookies
-        cookie_path = get_youtube_cookies()
-        if cookie_path:
-            current_opts['cookiefile'] = cookie_path
-            logger.info(f"Using cookies from browser")
-        else:
-            logger.warning("No browser cookies found, trying without cookies")
-        
-        try:
-            logger.info("Extracting video info...")
-            logger.debug(f"Using yt-dlp options: {current_opts}")
-            
-            with yt_dlp.YoutubeDL(current_opts) as ydl:
-                try:
-                    # 先获取基本信息
-                    basic_info = ydl.extract_info(url, download=False, process=False)
-                    logger.debug(f"Basic info extracted: {basic_info}")
-                    
-                    if not basic_info:
-                        raise Exception("Failed to extract basic video information")
-                    
-                    # 然后获取详细信息
+        if IS_VERCEL:
+            # Vercel 环境下只返回视频信息
+            try:
+                with yt_dlp.YoutubeDL(current_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
-                    logger.debug(f"Full info extracted: {info}")
-                    
                     if not info:
-                        raise Exception("Failed to extract detailed video information")
+                        raise Exception("Failed to extract video information")
                     
-                    # 检查是否有可用的格式
-                    if 'formats' not in info or not info['formats']:
-                        raise Exception("No available formats found for this video")
-                    
-                    # 开始异步下载
+                    return JSONResponse({
+                        "status": "success",
+                        "message": "Video information retrieved",
+                        "info": {
+                            "title": info.get('title', 'Unknown Title'),
+                            "duration": info.get('duration', 0),
+                            "uploader": info.get('uploader', 'Unknown'),
+                            "description": info.get('description', '')[:200],
+                        }
+                    })
+            except Exception as e:
+                logger.error(f"Error extracting video info: {str(e)}")
+                raise HTTPException(status_code=400, detail=str(e))
+        else:
+            # 本地环境完整下载功能
+            cookie_path = get_youtube_cookies()
+            if cookie_path:
+                current_opts['cookiefile'] = cookie_path
+            
+            try:
+                with yt_dlp.YoutubeDL(current_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
                     asyncio.create_task(download_task(url, current_opts, info))
-                    
                     return JSONResponse({
                         "status": "success",
                         "message": "Download started",
                         "title": info.get('title', 'Unknown Title')
                     })
-                    
-                except Exception as e:
-                    logger.error(f"Error during video info extraction: {str(e)}")
-                    raise
-                    
-        except Exception as e:
-            logger.error(f"YouTube download error: {str(e)}")
-            raise HTTPException(status_code=400, detail=f"YouTube download error: {str(e)}")
-            
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Server error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 async def download_task(url, opts, info):
     retry_count = 0
